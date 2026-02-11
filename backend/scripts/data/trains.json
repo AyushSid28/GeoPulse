@@ -1,0 +1,41 @@
+[
+  ["12951", "Rajdhani Express"],
+  ["12301", "Rajdhani Express"],
+  ["12259", "Sealdah Rajdhani"],
+  ["12309", "Rajendra Nagar Rajdhani"],
+  ["12423", "Bhopal Shatabdi"],
+  ["12001", "Bhopal Shatabdi"],
+  ["12163", "Lokmanya Tilak Express"],
+  ["11077", "Jhelum Express"],
+  ["12627", "Karnataka Express"],
+  ["12639", "Tamil Nadu Express"]
+]
+
+
+
+
+
+
+
+
+
+
+
+
+
+5. API endpoints
+GET /api/stations
+Query params (optional): e.g. search or q for name/code.
+Response: list of stations (id, code, name, lat, lng, zone).
+GET /api/stations/:id
+:id = your internal id or station code (e.g. NDLS).
+Response: single station.
+GET /api/trains
+Query params: number=..., name=... (partial match), and/or from_station_id=...&to_station_id=... (from–to search).
+For from–to you need trains that serve both stations; if you don’t have stop_times yet, you can return empty or a simple stub and implement later.
+Response: list of trains (id, number, name, type).
+GET /api/trains/:id
+:id = internal id or train number.
+Response: train + full schedule (stop_times with station names and times). If you don’t have stop_times in DB yet, return train + empty schedule and add schedule later.
+GET /api/trains/:id/route
+Response: route geometry (polyline for map). If not available, return 404. For Phase 1 you can derive a simple polyline from station coordinates (by stop_times order) or return 404 until you have data.
