@@ -5,6 +5,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.api.stations import router as stations_router
 from app.api.trains import router as trains_router
 
+from app.redis import redis_client
+
+
+
 load_dotenv()
 
 app = FastAPI(title="GeoPulse API", description="Train tracking API")
@@ -29,3 +33,7 @@ def read_root():
 @app.get("/health")
 def health_check():
     return {"status": "healthy"}
+
+@app.on_event("startup")
+async def startup():
+    await redis_client.ping()
