@@ -27,3 +27,13 @@ async def close_pool() -> None:
     if _pool is not None:
         await _pool.close()
         _pool = None
+
+
+async def get_db():
+    """FastAPI dependency: yields a DB connection for the request."""
+    pool = await get_pool()
+    conn = await pool.acquire()
+    try:
+        yield conn
+    finally:
+        await pool.release(conn)

@@ -14,7 +14,7 @@
 | **Live Station** | List **all trains** at a **station** in the next 2 or 4 hours (arrivals/departures, delays). | **Optional.** Use for “station board” or “what’s at this station” later; not needed for core track-one-train flow. |
 | Others (schedule, train between stations, station list, PNR) | Search, static data, PNR status. | Use as needed for ingest (Phase 1) and search. |
 
-**For GeoPulse core:** You need the **Live Train Status** endpoint. Live Station is a nice-to-have for a station-centric view.
+**For GeoPulse core:** Phase 2 uses **Where Is My Train** (cache API) + **pyinrail (NTES)** for live train status instead of Indian Rail API (no admin approval needed). Indian Rail API remains optional if you get access later; Live Station is a nice-to-have for station board.
 
 ---
 
@@ -123,18 +123,33 @@
 
 ## Phase 2 — Live Track (User Not on Train)
 
-**Goal:** User can select a train and see its **live position** on a map (from external Indian Rail API), with next station and ETA/delay when API provides it.
+**Goal:** User can select a train and see its **live position** on a map (from external live-status sources), with next station and ETA/delay when available.
 
-### Backend
+### Backend — Live status sources (use both; no Indian Rail API)
 
-- **Live status service:**
-  - Module that calls **Indian Rail API — Live Train Status** only (not Live Station). Endpoint pattern: `.../livetrainstatus/apikey/<key>/trainnumber/<no>/date/<yyyymmdd>/`. Input: train number + journey date. Output: current position (station or between stations), delay, list of passed/upcoming stops with actual/scheduled times.
-  - **Caching:** Store response in Redis with TTL (e.g. 60–120 seconds) to respect API limits and reduce latency.
-  - **Fallback:** If API fails, return 503 or cached static schedule so frontend can still show route without live position.
+Use **two** live-status sources and treat one as fallback:
+
+1. **Where Is My Train (unofficial cache API)**  
+   - **URL:** `GET https://whereismytrain.in/cache/live_status?train_no=<TRAIN_NO>&date=<dd-mm-yyyy>&lang=hi` (or `lang=en`).  
+   - **Input:** train number, journey date (**dd-mm-yyyy**).  
+   - **Output:** running status (parse response and normalize to your internal live-status shape).  
+   - No API key; unofficial — use as primary or fallback.
+
+2. **pyinrail (NTES — official enquiry)**  
+   - **Library:** `pyinrail` (GitHub: nikhilkumarsingh/pyinrail).  
+   - **Usage:** `get_train_status(train_no, as_df=True)` → train_detail, instances, detailed_instances (station-wise actual/scheduled times, delays, current station).  
+   - **Backend:** Hits `https://enquiry.indianrail.gov.in/ntes/` (SearchTrain + getTrainData).  
+   - **Input:** train number only (no journey date in the call).  
+   - Use as primary or fallback; run sync code in thread/executor if your stack is async.
+
+- **Live status service:**  
+  - Module that calls **one source first** (e.g. Where Is My Train with date, or pyinrail), then **the other on failure/empty**. Normalize both responses to the same internal shape (current_station, next_station, delay_minutes, route list with actual/scheduled times).  
+  - **Caching:** Store normalized response in Redis with TTL (e.g. 60–120 seconds) to reduce calls and latency.  
+  - **Fallback:** If both fail, return 503 or cached static schedule so frontend can still show route without live position.
 - **API:**
   - **GET /api/trains/:id/live** — query params: `date=YYYY-MM-DD` (default today). Returns: current position (lat/lng if derivable, or last_station/next_station), delay_minutes, next_station, eta_next_station, list of stop updates (actual times). Use live status service + cache.
-  - If external API returns only station names (not coordinates), backend derives approximate position from route geometry (e.g. last known station + fraction to next).
-- **Rate limiting:** Optional Redis-based rate limit per IP or per API key for `/api/trains/:id/live`.
+  - If external responses give only station names (not coordinates), backend can derive approximate position from route geometry (e.g. last known station + fraction to next).
+- **Rate limiting:** Optional Redis-based rate limit per IP for `/api/trains/:id/live`.
 
 ### Frontend
 
