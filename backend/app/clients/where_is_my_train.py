@@ -51,16 +51,53 @@ class WhereIsMyTrainClient:
 
     def _map_response(self,data:dict)->dict:
         """
-        Normalize the response of external api to internal live-status shape
-        """
-        current_station=data.get("current_station")
-        next_station=data.get("next_station")
-        delay=data.get("delay")
-        route=data.get("route",[])
+        Normalize the WhereIsMyTrain API response to internal live-status shape.
 
-        return{
-            "current_station":current_station,
-            "next_station":next_station,
-            "delay":delay,
-            "route":route,
+        Known API keys (from whereismytrain.in/cache/live_status):
+          curStn / current_station   – current station code
+          pitstop_next_to_curstn     – dict with next station info
+          days_schedule / route      – list of stop dicts
+          delay / delay_in_arrival   – delay value
+        """
+        # Current station — try API-specific key first, then generic
+        current_station = (
+            data.get("curStn")
+            or data.get("current_station")
+            or data.get("cur_stn")
+        )
+
+        # Next station — nested dict or flat key
+        next_stn_obj = data.get("pitstop_next_to_curstn") or {}
+        next_station = (
+            next_stn_obj.get("station_code")
+            if isinstance(next_stn_obj, dict) else None
+        ) or data.get("next_station")
+
+        # Delay
+        delay = data.get("delay") or data.get("delay_in_arrival")
+
+        # Route — map from days_schedule (actual API) or route (generic)
+        raw_route = data.get("days_schedule") or data.get("route") or []
+        route = []
+        for stop in raw_route:
+            if not isinstance(stop, dict):
+                continue
+            route.append({
+                "station_code": stop.get("station_code") or stop.get("stationCode") or "",
+                "station_name": stop.get("station_name") or stop.get("stationName") or "",
+                "scheduled_arrival": stop.get("sch_arrival") or stop.get("scheduled_arrival"),
+                "actual_arrival": stop.get("act_arrival") or stop.get("actual_arrival"),
+                "delay_arrival": stop.get("delay_in_arrival") or stop.get("delay_arrival"),
+                "scheduled_departure": stop.get("sch_departure") or stop.get("scheduled_departure"),
+                "actual_departure": stop.get("act_departure") or stop.get("actual_departure"),
+                "delay_departure": stop.get("delay_in_departure") or stop.get("delay_departure"),
+                "platform": stop.get("platform"),
+                "is_departed": stop.get("has_departed") or stop.get("is_departed"),
+            })
+
+        return {
+            "current_station": current_station,
+            "next_station": next_station,
+            "delay": delay,
+            "route": route,
         }
