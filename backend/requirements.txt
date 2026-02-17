@@ -5,6 +5,7 @@ sqlalchemy
 asyncpg
 httpx
 redis
+groq
 
 
 ruff
