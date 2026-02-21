@@ -10,6 +10,7 @@ from app.models.train import Train
 from app.models.livetrainstatus import LiveTrainStatus
 from app.models.livestationstop import LiveStationStop
 from app.clients.live_status_service import LiveStatusService
+from app.services.snap import snap_to_route
 
 logger = logging.getLogger(__name__)
 
@@ -263,4 +264,29 @@ async def get_train_route(
     }
 
 
-#updated at timestamps
+@router.get("/{train_id}/route/snap")
+async def snap_user_to_route(
+    train_id: str,
+    lat: float = Query(..., description="User latitude"),
+    lng: float = Query(..., description="User longitude"),
+    conn: asyncpg.Connection = Depends(get_db),
+):
+    row = await conn.fetchrow(
+        """
+        SELECT rg.geometry
+        FROM route_geometry rg
+        JOIN trains t ON t.id = rg.train_id
+        WHERE t.number = $1 OR t.id::text = $1
+        """,
+        train_id,
+    )
+
+    if not row or not row["geometry"]:
+        raise HTTPException(status_code=404, detail="Route not found")
+
+    geometry = row["geometry"]
+
+    if len(geometry) < 2:
+        raise HTTPException(status_code=400, detail="Route has too few points to snap")
+
+    return snap_to_route(geometry, lat, lng)
