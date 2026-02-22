@@ -15,3 +15,6 @@ class LiveTrainStatus(BaseModel):
     route: Optional[list[LiveStationStop]] = None
     last_updated: Optional[datetime] = None
     source: Optional[str] = None
+    eta_next_station: Optional[str] = None
+
+
