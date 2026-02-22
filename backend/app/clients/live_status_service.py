@@ -38,7 +38,7 @@ class LiveStatusService:
         """
         cache_key = f"live_status:{train_no}:{date}"
 
-        # --- try cache (non-fatal) ---
+       
         try:
             cached = await redis_client.get(cache_key)
             if cached:
@@ -48,7 +48,7 @@ class LiveStatusService:
         except Exception as redis_err:
             logger.warning("Redis GET failed for %s: %s", cache_key, redis_err)
 
-        # --- primary: WhereIsMyTrain ---
+     
         try:
             result = await self.primary.get_live_status(train_no, date)
             result["source"] = "whereismytrain"
@@ -60,7 +60,7 @@ class LiveStatusService:
                 train_no, primary_error,
             )
 
-        # --- fallback: IRCTC RapidAPI ---
+       
         try:
             result = await self.fallback.get_live_status(train_no, date)
             result["source"] = "irctc_rapidapi"
