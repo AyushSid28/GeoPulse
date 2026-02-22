@@ -59,7 +59,19 @@ CREATE TABLE route_geometry (
 
 
 
+CREATE TABLE alerts(
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    train_id UUID NOT NULL REFERENCES trains(id) ON DELETE CASCADE,
+    user_id VARCHAR(255) NOT NULL,
+    type VARCHAR(50) DEFAULT 'before_station',
+    station_id UUID NOT NULL REFERENCES stations(id) ON DELETE CASCADE,
+    minutes_before INT DEFAULT 10,
+    triggered BOOLEAN DEFAULT FALSE,
+    created_at TIMESTAMP DEFAULT NOW()
+);
 
+CREATE INDEX idx_alerts_user_id ON alerts(user_id);
+CREATE INDEX idx_alerts_train_id ON alerts(train_id);
 
 
 
