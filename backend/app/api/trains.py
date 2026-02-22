@@ -11,6 +11,8 @@ from app.models.livetrainstatus import LiveTrainStatus
 from app.models.livestationstop import LiveStationStop
 from app.clients.live_status_service import LiveStatusService
 from app.services.snap import snap_to_route
+from app.GenAI.ai_service import generate_status_summary
+from app.services.rate_limit import rate_limit
 
 logger = logging.getLogger(__name__)
 
@@ -69,13 +71,13 @@ async def list_trains(
     return [row_to_train(r) for r in rows]
 
 
-@router.get("/{train_id}/live", response_model=LiveTrainStatus)
+@router.get("/{train_id}/live", response_model=LiveTrainStatus, dependencies=[Depends(rate_limit)])
 async def get_live_status(
     train_id: str,
     date: Optional[str] = Query(None, description="Journey date YYYY-MM-DD, defaults to today"),
     conn: asyncpg.Connection = Depends(get_db),
 ):
-    # --- resolve train by number or UUID ---
+    
     row = await conn.fetchrow(
         "SELECT id, number, name, type FROM trains WHERE number = $1 OR id::text = $1",
         train_id,
@@ -86,7 +88,7 @@ async def get_live_status(
     train_number = row["number"]
     journey_date = date or datetime.now().strftime("%Y-%m-%d")
 
-    # --- try live status service (primary + fallback + cache) ---
+    
     try:
         raw = await live_status_service.get_live_status(train_number, journey_date)
         return await _build_live_response(
@@ -98,7 +100,7 @@ async def get_live_status(
             train_number,
         )
 
-    # --- fallback: static schedule from DB ---
+    
     schedule_rows = await conn.fetch(
         """
         SELECT st.sequence, st.arrival_time, st.departure_time, st.platform,
@@ -145,7 +147,7 @@ async def _build_live_response(
     current_code = raw.get("current_station")
     next_code = raw.get("next_station")
 
-    # Look up lat/lng for current station to derive position
+    
     position = None
     if current_code:
         stn_row = await conn.fetchrow(
@@ -154,7 +156,7 @@ async def _build_live_response(
         if stn_row and stn_row["lat"] is not None and stn_row["lng"] is not None:
             position = {"lat": float(stn_row["lat"]), "lng": float(stn_row["lng"])}
 
-    # Build current / next station stop objects
+  
     current_stop = None
     next_stop = None
     route_stops: list[LiveStationStop] = []
@@ -182,12 +184,24 @@ async def _build_live_response(
         if code == next_code:
             next_stop = ls
 
-    # Parse delay to int minutes
+    
     delay_minutes = None
     raw_delay = raw.get("delay")
     if raw_delay is not None:
         try:
             delay_minutes = int(raw_delay)
+        except (ValueError, TypeError):
+            pass
+
+    eta = None
+    if next_stop and next_stop.scheduled_arrival and delay_minutes is not None:
+        try:
+            from datetime import timedelta
+            arr_time = datetime.strptime(next_stop.scheduled_arrival, "%H:%M:%S").time()
+            arr_dt = datetime.combine(datetime.today(), arr_time)
+            eta_dt = arr_dt + timedelta(minutes=delay_minutes)
+            eta = eta_dt.strftime("%H:%M")
+
         except (ValueError, TypeError):
             pass
 
@@ -198,10 +212,37 @@ async def _build_live_response(
         next_station=next_stop,
         position=position,
         delay_minutes=delay_minutes,
+        eta_next_station=eta,
         route=route_stops,
         last_updated=datetime.now(),
         source=raw.get("source"),
     )
+
+
+@router.get("/{train_id}/live/summary")
+async def get_live_summary(
+    train_id: str,
+    date: Optional[str] = Query(None, description="Journey date YYYY-MM-DD, defaults to today"),
+    conn: asyncpg.Connection = Depends(get_db),
+):
+    row = await conn.fetchrow(
+        "SELECT id, number FROM trains WHERE number = $1 OR id::text = $1",
+        train_id,
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail="Train not found")
+
+    train_number = row["number"]
+    journey_date = date or datetime.now().strftime("%Y-%m-%d")
+
+    try:
+        raw = await live_status_service.get_live_status(train_number, journey_date)
+    except RuntimeError:
+        return {"summary": "Live data is currently unavailable for this train."}
+
+    raw["train_no"] = train_number
+    summary = await generate_status_summary(raw)
+    return {"summary": summary}
 
 
 @router.get("/{train_id}")
